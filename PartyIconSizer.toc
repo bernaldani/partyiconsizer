@@ -1,9 +1,0 @@
-## Interface: 110002
-## Title: Party Icon Sizer
-## Notes: Aumenta el tamaño de los iconos de los miembros del grupo en el mapa principal.
-## Author: Daniel Bernal
-## Version: 1.1
-## SavedVariables: PartyIconSizerDB
-## Icon: Interface\AddOns\PartyIconSizer\Media\icon.tga
-
-PartyIconSizer.lua

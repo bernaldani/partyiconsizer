@@ -1,16 +1,33 @@
 -- Create configuration table if it doesn't exist
-if not PartyIconSizerDB then
-    PartyIconSizerDB = {}
+if not CustomPartyGlowDB then
+    CustomPartyGlowDB = {}
 end
 
 -- Set default icon size if not configured
-local iconSize = PartyIconSizerDB.iconSize or 24
-local sliderPos = PartyIconSizerDB.sliderPos or {}
+local iconSize = CustomPartyGlowDB.iconSize or 24
+local sliderPos = CustomPartyGlowDB.sliderPos or {}
 
 -- Global variables for the button, slider, and custom blips
 local mapButton
 local sizeSliderFrame
 local customBlips = customBlips or {}
+
+-- Class colors mapping
+local classColors = {
+    ["WARRIOR"] = {1, 0.78, 0.55},
+    ["PALADIN"] = {0.96, 0.55, 0.73},
+    ["HUNTER"] = {0.67, 0.83, 0.45},
+    ["ROGUE"] = {1, 0.96, 0.41},
+    ["PRIEST"] = {1, 1, 1},
+    ["DEATHKNIGHT"] = {0.77, 0.12, 0.23},
+    ["SHAMAN"] = {0, 0.44, 0.87},
+    ["MAGE"] = {0.41, 0.8, 0.94},
+    ["WARLOCK"] = {0.58, 0.51, 0.79},
+    ["MONK"] = {0, 1, 0.59},
+    ["DRUID"] = {1, 0.49, 0.04},
+    ["DEMONHUNTER"] = {0.64, 0.19, 0.79},
+    ["EVOKER"] = {0.2, 0.58, 0.5},
+}
 
 -- Function to update custom blips (glowing effects without icons)
 local function UpdatePartyIcons()
@@ -29,7 +46,7 @@ local function UpdatePartyIcons()
     end
 
     local numGroupMembers = GetNumGroupMembers()
-    if numGroupMembers > 0 then
+    if numGroupMembers > 0 or not IsInInstance() then
         local unitPrefix = IsInRaid() and "raid" or "party"
         local numUnits = IsInRaid() and 40 or 4
 
@@ -56,7 +73,11 @@ local function UpdatePartyIcons()
                         blip.border:SetTexture("Interface\\GLUES\\Models\\UI_Draenei\\GenericGlow64")
                         blip.border:SetBlendMode("ADD")
                         blip.border:SetAlpha(0.8)
-                        blip.border:SetVertexColor(1, 1, 0)
+
+                        -- Get the class of the unit
+                        local _, class = UnitClass(unit)
+                        local color = classColors[class] or {1, 1, 0} -- Default to yellow if class not found
+                        blip.border:SetVertexColor(unpack(color))
 
                         local glowSize = iconSize * 2
                         blip.border:SetSize(glowSize, glowSize)
@@ -77,6 +98,11 @@ local function UpdatePartyIcons()
 
                         customBlips[unit] = blip
                     else
+                        -- Update existing blip's color and size
+                        local _, class = UnitClass(unit)
+                        local color = classColors[class] or {1, 1, 0}
+                        blip.border:SetVertexColor(unpack(color))
+
                         blip:SetSize(iconSize, iconSize)
                         local glowSize = iconSize * 2
                         blip.border:SetSize(glowSize, glowSize)
@@ -110,10 +136,8 @@ end)
 -- Function to reposition the button based on map size (fullscreen or windowed)
 function RepositionMapButton()
     if WorldMapFrame:IsMaximized() then
-        -- When the map is in fullscreen mode
         mapButton:SetPoint("TOPRIGHT", WorldMapFrame.BorderFrame.MaximizeMinimizeFrame, "TOPLEFT", -185, -75)
     else
-        -- When the map is in windowed mode
         mapButton:SetPoint("TOPRIGHT", WorldMapFrame.BorderFrame.MaximizeMinimizeFrame, "TOPLEFT", -485, -75)
     end
 end
@@ -124,33 +148,27 @@ function CreateMapButton()
         return
     end
 
-    -- Create button next to the World Map's filter button
-    mapButton = CreateFrame("Button", "PartyIconSizerMapButton", WorldMapFrame.BorderFrame, "UIPanelButtonTemplate")
+    mapButton = CreateFrame("Button", "CustomPartyGlowMapButton", WorldMapFrame.BorderFrame, "UIPanelButtonTemplate")
     mapButton:SetSize(24, 24)
     RepositionMapButton()
 
-    -- Set the icon texture for the button
     mapButton.icon = mapButton:CreateTexture(nil, "ARTWORK")
     mapButton.icon:SetTexture("Interface\\GroupFrame\\UI-Group-LeaderIcon")
     mapButton.icon:SetAllPoints()
 
-    -- Set tooltip when hovering over the button
     mapButton:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText("Adjust Icon Size", 1, 1, 1)
         GameTooltip:Show()
     end)
 
-    -- Hide tooltip when the cursor leaves the button
     mapButton:SetScript("OnLeave", function(self)
         GameTooltip:Hide()
     end)
 
-    -- Hook the maximize/minimize events to reposition the button when the map changes size
     hooksecurefunc(WorldMapFrame, "Maximize", RepositionMapButton)
     hooksecurefunc(WorldMapFrame, "Minimize", RepositionMapButton)
 
-    -- OnClick behavior
     mapButton:SetScript("OnClick", function()
         if sizeSliderFrame and sizeSliderFrame:IsShown() then
             sizeSliderFrame:Hide()
@@ -163,7 +181,7 @@ end
 -- Function to display the size adjustment slider
 function ShowSizeSlider()
     if not sizeSliderFrame then
-        sizeSliderFrame = CreateFrame("Frame", "PartyIconSizerSliderFrame", WorldMapFrame, "BasicFrameTemplateWithInset")
+        sizeSliderFrame = CreateFrame("Frame", "CustomPartyGlowSliderFrame", WorldMapFrame, "BasicFrameTemplateWithInset")
         sizeSliderFrame:SetSize(220, 100)
         if sliderPos.point then
             sizeSliderFrame:SetPoint(sliderPos.point, sliderPos.relativeTo, sliderPos.relativePoint, sliderPos.xOfs, sliderPos.yOfs)
@@ -183,7 +201,7 @@ function ShowSizeSlider()
         sizeSliderFrame:SetScript("OnDragStop", function(self)
             self:StopMovingOrSizing()
             local point, relativeTo, relativePoint, xOfs, yOfs = self:GetPoint()
-            PartyIconSizerDB.sliderPos = {
+            CustomPartyGlowDB.sliderPos = {
                 point = point,
                 relativeTo = relativeTo and relativeTo:GetName() or "WorldMapFrame",
                 relativePoint = relativePoint,
@@ -197,7 +215,7 @@ function ShowSizeSlider()
         sizeSliderFrame.title:SetPoint("TOPLEFT", sizeSliderFrame.TitleBg, "TOPLEFT", 5, -5)
         sizeSliderFrame.title:SetText("Adjust Icon Size")
 
-        local slider = CreateFrame("Slider", "PartyIconSizerSlider", sizeSliderFrame, "OptionsSliderTemplate")
+        local slider = CreateFrame("Slider", "CustomPartyGlowSlider", sizeSliderFrame, "OptionsSliderTemplate")
         slider:SetWidth(180)
         slider:SetHeight(20)
         slider:SetPoint("CENTER", sizeSliderFrame, "CENTER", 0, -10)
@@ -213,7 +231,7 @@ function ShowSizeSlider()
         slider:SetScript("OnValueChanged", function(self, value)
             value = math.floor(value)
             iconSize = value
-            PartyIconSizerDB.iconSize = value
+            CustomPartyGlowDB.iconSize = value
             _G[self:GetName() .. "Text"]:SetText("Size: " .. value)
             if value > 16 then
                 UpdatePartyIcons()
@@ -230,7 +248,7 @@ function ShowSizeSlider()
                 value = 16
                 slider:SetValue(16)
                 _G[slider:GetName() .. "Text"]:SetText("Size: 16")
-                PartyIconSizerDB.iconSize = 16
+                CustomPartyGlowDB.iconSize = 16
                 for _, blip in pairs(customBlips) do
                     blip:Hide()
                 end
@@ -244,7 +262,7 @@ function ShowSizeSlider()
         end)
     else
         sizeSliderFrame:Show()
-        local slider = _G["PartyIconSizerSlider"]
+        local slider = _G["CustomPartyGlowSlider"]
         if slider then
             slider:SetValue(math.floor(iconSize))
             _G[slider:GetName() .. "Text"]:SetText("Size: " .. math.floor(iconSize))
@@ -265,17 +283,17 @@ frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 
 frame:SetScript("OnEvent", function(self, event, arg1)
-    if event == "ADDON_LOADED" and arg1 == "PartyIconSizer" then
-        iconSize = PartyIconSizerDB.iconSize or 24
-        sliderPos = PartyIconSizerDB.sliderPos or {}
+    if event == "ADDON_LOADED" and arg1 == "CustomPartyGlow" then
+        iconSize = CustomPartyGlowDB.iconSize or 24
+        sliderPos = CustomPartyGlowDB.sliderPos or {}
     elseif event == "PLAYER_ENTERING_WORLD" then
         CreateMapButton()
     end
 end)
 
 -- Chat command to open the slider
-SLASH_PARTYICONSIZER1 = "/pis"
-SLASH_PARTYICONSIZER2 = "/partyiconsizer"
-SlashCmdList["PARTYICONSIZER"] = function(msg)
+SLASH_CUSTOMPARTYGLOW1 = "/cpg"
+SLASH_CUSTOMPARTYGLOW2 = "/custompartyglow"
+SlashCmdList["CUSTOMPARTYGLOW"] = function(msg)
     ShowSizeSlider()
 end
