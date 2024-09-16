@@ -1,11 +1,11 @@
 -- Create configuration table if it doesn't exist
-if not CustomPartyGlowDB then
-    CustomPartyGlowDB = {}
+if not ClassGlowMapIconsDB then
+    ClassGlowMapIconsDB = {}
 end
 
 -- Set default icon size if not configured
-local iconSize = CustomPartyGlowDB.iconSize or 24
-local sliderPos = CustomPartyGlowDB.sliderPos or {}
+local iconSize = ClassGlowMapIconsDB.iconSize or 24
+local sliderPos = ClassGlowMapIconsDB.sliderPos or {}
 
 -- Global variables for the button, slider, and custom blips
 local mapButton
@@ -46,7 +46,7 @@ local function UpdatePartyIcons()
     end
 
     local numGroupMembers = GetNumGroupMembers()
-    if numGroupMembers > 0 or not IsInInstance() then
+    if numGroupMembers > 0 then
         local unitPrefix = IsInRaid() and "raid" or "party"
         local numUnits = IsInRaid() and 40 or 4
 
@@ -136,8 +136,10 @@ end)
 -- Function to reposition the button based on map size (fullscreen or windowed)
 function RepositionMapButton()
     if WorldMapFrame:IsMaximized() then
+        -- When the map is in fullscreen mode
         mapButton:SetPoint("TOPRIGHT", WorldMapFrame.BorderFrame.MaximizeMinimizeFrame, "TOPLEFT", -185, -75)
     else
+        -- When the map is in windowed mode
         mapButton:SetPoint("TOPRIGHT", WorldMapFrame.BorderFrame.MaximizeMinimizeFrame, "TOPLEFT", -485, -75)
     end
 end
@@ -148,27 +150,33 @@ function CreateMapButton()
         return
     end
 
-    mapButton = CreateFrame("Button", "CustomPartyGlowMapButton", WorldMapFrame.BorderFrame, "UIPanelButtonTemplate")
+    -- Create button next to the World Map's filter button
+    mapButton = CreateFrame("Button", "ClassGlowMapIconsMapButton", WorldMapFrame.BorderFrame, "UIPanelButtonTemplate")
     mapButton:SetSize(24, 24)
     RepositionMapButton()
 
+    -- Set the icon texture for the button
     mapButton.icon = mapButton:CreateTexture(nil, "ARTWORK")
     mapButton.icon:SetTexture("Interface\\GroupFrame\\UI-Group-LeaderIcon")
     mapButton.icon:SetAllPoints()
 
+    -- Set tooltip when hovering over the button
     mapButton:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText("Adjust Icon Size", 1, 1, 1)
         GameTooltip:Show()
     end)
 
+    -- Hide tooltip when the cursor leaves the button
     mapButton:SetScript("OnLeave", function(self)
         GameTooltip:Hide()
     end)
 
+    -- Hook the maximize/minimize events to reposition the button when the map changes size
     hooksecurefunc(WorldMapFrame, "Maximize", RepositionMapButton)
     hooksecurefunc(WorldMapFrame, "Minimize", RepositionMapButton)
 
+    -- OnClick behavior
     mapButton:SetScript("OnClick", function()
         if sizeSliderFrame and sizeSliderFrame:IsShown() then
             sizeSliderFrame:Hide()
@@ -181,7 +189,7 @@ end
 -- Function to display the size adjustment slider
 function ShowSizeSlider()
     if not sizeSliderFrame then
-        sizeSliderFrame = CreateFrame("Frame", "CustomPartyGlowSliderFrame", WorldMapFrame, "BasicFrameTemplateWithInset")
+        sizeSliderFrame = CreateFrame("Frame", "ClassGlowMapIconsSliderFrame", WorldMapFrame, "BasicFrameTemplateWithInset")
         sizeSliderFrame:SetSize(220, 100)
         if sliderPos.point then
             sizeSliderFrame:SetPoint(sliderPos.point, sliderPos.relativeTo, sliderPos.relativePoint, sliderPos.xOfs, sliderPos.yOfs)
@@ -201,7 +209,7 @@ function ShowSizeSlider()
         sizeSliderFrame:SetScript("OnDragStop", function(self)
             self:StopMovingOrSizing()
             local point, relativeTo, relativePoint, xOfs, yOfs = self:GetPoint()
-            CustomPartyGlowDB.sliderPos = {
+            ClassGlowMapIconsDB.sliderPos = {
                 point = point,
                 relativeTo = relativeTo and relativeTo:GetName() or "WorldMapFrame",
                 relativePoint = relativePoint,
@@ -215,7 +223,7 @@ function ShowSizeSlider()
         sizeSliderFrame.title:SetPoint("TOPLEFT", sizeSliderFrame.TitleBg, "TOPLEFT", 5, -5)
         sizeSliderFrame.title:SetText("Adjust Icon Size")
 
-        local slider = CreateFrame("Slider", "CustomPartyGlowSlider", sizeSliderFrame, "OptionsSliderTemplate")
+        local slider = CreateFrame("Slider", "ClassGlowMapIconsSlider", sizeSliderFrame, "OptionsSliderTemplate")
         slider:SetWidth(180)
         slider:SetHeight(20)
         slider:SetPoint("CENTER", sizeSliderFrame, "CENTER", 0, -10)
@@ -231,7 +239,7 @@ function ShowSizeSlider()
         slider:SetScript("OnValueChanged", function(self, value)
             value = math.floor(value)
             iconSize = value
-            CustomPartyGlowDB.iconSize = value
+            ClassGlowMapIconsDB.iconSize = value
             _G[self:GetName() .. "Text"]:SetText("Size: " .. value)
             if value > 16 then
                 UpdatePartyIcons()
@@ -248,7 +256,7 @@ function ShowSizeSlider()
                 value = 16
                 slider:SetValue(16)
                 _G[slider:GetName() .. "Text"]:SetText("Size: 16")
-                CustomPartyGlowDB.iconSize = 16
+                ClassGlowMapIconsDB.iconSize = 16
                 for _, blip in pairs(customBlips) do
                     blip:Hide()
                 end
@@ -262,7 +270,7 @@ function ShowSizeSlider()
         end)
     else
         sizeSliderFrame:Show()
-        local slider = _G["CustomPartyGlowSlider"]
+        local slider = _G["ClassGlowMapIconsSlider"]
         if slider then
             slider:SetValue(math.floor(iconSize))
             _G[slider:GetName() .. "Text"]:SetText("Size: " .. math.floor(iconSize))
@@ -283,17 +291,17 @@ frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 
 frame:SetScript("OnEvent", function(self, event, arg1)
-    if event == "ADDON_LOADED" and arg1 == "CustomPartyGlow" then
-        iconSize = CustomPartyGlowDB.iconSize or 24
-        sliderPos = CustomPartyGlowDB.sliderPos or {}
+    if event == "ADDON_LOADED" and arg1 == "ClassGlowMapIcons" then
+        iconSize = ClassGlowMapIconsDB.iconSize or 24
+        sliderPos = ClassGlowMapIconsDB.sliderPos or {}
     elseif event == "PLAYER_ENTERING_WORLD" then
         CreateMapButton()
     end
 end)
 
 -- Chat command to open the slider
-SLASH_CUSTOMPARTYGLOW1 = "/cpg"
-SLASH_CUSTOMPARTYGLOW2 = "/custompartyglow"
-SlashCmdList["CUSTOMPARTYGLOW"] = function(msg)
+SLASH_CLASSGLOWMAPICONS1 = "/cgm"
+SLASH_CLASSGLOWMAPICONS2 = "/classglowmapicons"
+SlashCmdList["CLASSGLOWMAPICONS"] = function(msg)
     ShowSizeSlider()
 end
