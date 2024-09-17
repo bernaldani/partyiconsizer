@@ -1,8 +1,8 @@
-## Interface: 110005
+## Interface: 110002
 ## Title: Custom Party Glow
 ## Notes: Adds glowing effects to party members on the world map with color-coded glows based on their class.
 ## Author: Daniel Bernal
-## Version: 1.1
+## Version: 1.0.2
 ## SavedVariables: CustomPartyGlowDB
 
 CustomPartyGlow.lua
