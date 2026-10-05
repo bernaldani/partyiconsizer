@@ -1,8 +1,16 @@
-## Interface: 110005
+## Interface: 120100, 120105
 ## Title: Custom Party Glow
 ## Notes: Adds glowing effects to party members on the world map with color-coded glows based on their class.
+## Notes-esES: Agrega efectos brillantes a los miembros del grupo en el mapa mundial con brillos codificados por colores según su clase.
+## Notes-esMX: Agrega efectos brillantes a los miembros del grupo en el mapa mundial con brillos codificados por colores según su clase.
+## Notes-ptBR: Adiciona efeitos de brilho aos membros do grupo no mapa-múndi, com cores de acordo com a classe.
 ## Author: Daniel Bernal
-## Version: 1.0.2
+## Category: Map Enhancements
+## Version: 1.2.0
 ## SavedVariables: CustomPartyGlowDB
+## IconTexture: Interface\AddOns\CustomPartyGlow\icon
+## AddonCompartmentFunc: CustomPartyGlow_OnAddonCompartmentClick
 
+Libs/LibStub/LibStub.lua
+Libs/Krowi_WorldMapButtons/Krowi_WorldMapButtons.lua
 CustomPartyGlow.lua

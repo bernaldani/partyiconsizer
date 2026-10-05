@@ -1,0 +1,16 @@
+package-as: CustomPartyGlow
+
+enable-nolib-creation: no
+
+externals:
+  Libs/LibStub: https://repos.wowace.com/wow/libstub/trunk
+  Libs/Krowi_WorldMapButtons: https://github.com/TheKrowi/Krowi_WorldMapButtons
+
+ignore:
+  - .git
+  - .github
+  - release.sh
+  - setup-packager.sh
+  - README.md
+  - LICENSE
+  - .pkgmeta

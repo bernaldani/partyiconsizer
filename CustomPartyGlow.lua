@@ -1,307 +1,365 @@
--- Create configuration table if it doesn't exist
-if not ClassGlowMapIconsDB then
-    ClassGlowMapIconsDB = {}
+--========================================================--
+--  Custom Party Glow  (WoW 12.x)
+--  Glow effect over party / raid members on the world map.
+--========================================================--
+
+local addonName = ...
+
+-- Localization: English is the fallback, add a block per client locale.
+local L = setmetatable({}, { __index = function(_, k) return k end })
+local locale = GetLocale()
+if locale == "esES" or locale == "esMX" then
+  L["Size"]                      = "Tamaño"
+  L["Glow Scale"]                = "Escala del brillo"
+  L["Opacity"]                   = "Opacidad"
+  L["Show player"]               = "Mostrar jugador"
+  L["Show minimap button"]       = "Mostrar botón en el minimapa"
+  L["Click to open the options."] = "Click para abrir las opciones."
+  L["Drag to move it."]          = "Arrastra para moverlo."
+  L["loaded - /cpg opens the options."] = "cargado - /cpg abre las opciones."
+elseif locale == "ptBR" then
+  L["Size"]                      = "Tamanho"
+  L["Glow Scale"]                = "Escala do brilho"
+  L["Opacity"]                   = "Opacidade"
+  L["Show player"]               = "Mostrar jogador"
+  L["Show minimap button"]       = "Mostrar botão no minimapa"
+  L["Click to open the options."] = "Clique para abrir as opções."
+  L["Drag to move it."]          = "Arraste para movê-lo."
+  L["loaded - /cpg opens the options."] = "carregado - /cpg abre as opções."
 end
 
--- Set default icon size if not configured
-local iconSize = ClassGlowMapIconsDB.iconSize or 24
-local sliderPos = ClassGlowMapIconsDB.sliderPos or {}
+CustomPartyGlowDB = CustomPartyGlowDB or {}
 
--- Global variables for the button, slider, and custom blips
-local mapButton
-local sizeSliderFrame
-local customBlips = customBlips or {}
+local iconSize, glowScale, iconAlpha, showPlayer
+local CreateMinimapButton, CreateMapButton -- defined below, run on ADDON_LOADED
 
--- Class colors mapping
-local classColors = {
-    ["WARRIOR"] = {1, 0.78, 0.55},
-    ["PALADIN"] = {0.96, 0.55, 0.73},
-    ["HUNTER"] = {0.67, 0.83, 0.45},
-    ["ROGUE"] = {1, 0.96, 0.41},
-    ["PRIEST"] = {1, 1, 1},
-    ["DEATHKNIGHT"] = {0.77, 0.12, 0.23},
-    ["SHAMAN"] = {0, 0.44, 0.87},
-    ["MAGE"] = {0.41, 0.8, 0.94},
-    ["WARLOCK"] = {0.58, 0.51, 0.79},
-    ["MONK"] = {0, 1, 0.59},
-    ["DRUID"] = {1, 0.49, 0.04},
-    ["DEMONHUNTER"] = {0.64, 0.19, 0.79},
-    ["EVOKER"] = {0.2, 0.58, 0.5},
-}
+local function ClassColor(unit)
+  local _, cls = UnitClass(unit)
+  local c = cls and RAID_CLASS_COLORS[cls]
+  if c then return c.r, c.g, c.b end
+  return 1, 1, 0
+end
 
--- Function to update custom blips (glowing effects without icons)
+local function LoadSettings()
+  local db = CustomPartyGlowDB
+  db.iconSize   = db.iconSize   or 24
+  db.glowScale  = db.glowScale  or 2
+  db.iconAlpha  = db.iconAlpha  or 0.8
+  db.showPlayer = db.showPlayer ~= false
+  db.showMinimap = db.showMinimap ~= false
+
+  iconSize   = db.iconSize
+  glowScale  = db.glowScale
+  iconAlpha  = db.iconAlpha
+  showPlayer = db.showPlayer
+end
+
+local ev = CreateFrame("Frame")
+ev:RegisterEvent("ADDON_LOADED")
+-- Every option writes straight into CustomPartyGlowDB, which WoW saves on logout.
+ev:SetScript("OnEvent", function(_, _, arg1)
+  if arg1 == addonName then
+    LoadSettings()
+    CreateMinimapButton()
+    CreateMapButton()
+  end
+end)
+
+-----------------------------------------------------------------------------
+-- World map blips
+-----------------------------------------------------------------------------
+local customBlips = {}
+
+local function CreateBlip(unit)
+  local blip = CreateFrame("Frame", nil, WorldMapFrame:GetCanvas())
+  blip:SetFrameStrata("HIGH")
+  blip:SetFrameLevel(2000)
+
+  blip:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:AddLine(UnitName(unit) or "?", ClassColor(unit))
+    GameTooltip:AddLine(UnitClass(unit) or "", 1, 1, 1)
+    GameTooltip:Show()
+  end)
+  blip:SetScript("OnLeave", GameTooltip_Hide)
+
+  blip.border = blip:CreateTexture(nil, "OVERLAY")
+  blip.border:SetTexture("Interface\\GLUES\\Models\\UI_Draenei\\GenericGlow64")
+  blip.border:SetBlendMode("ADD")
+  blip.border:SetPoint("CENTER")
+
+  local pulse = blip.border:CreateAnimationGroup()
+  pulse:SetLooping("REPEAT")
+  local pIn = pulse:CreateAnimation("Scale")
+  pIn:SetScale(1.2, 1.2); pIn:SetDuration(0.5); pIn:SetSmoothing("IN")
+  local pOut = pulse:CreateAnimation("Scale")
+  pOut:SetScale(0.8333, 0.8333); pOut:SetDuration(0.5); pOut:SetSmoothing("OUT")
+  pOut:SetStartDelay(0.5)
+  pulse:Play()
+
+  return blip
+end
+
 local function UpdatePartyIcons()
-    -- Ensure customBlips is a valid table
-    if not customBlips or type(customBlips) ~= "table" then
-        customBlips = {}
+  if not WorldMapFrame or not WorldMapFrame:IsShown() then return end
+
+  local canvas = WorldMapFrame:GetCanvas()
+  local mapID  = WorldMapFrame:GetMapID()
+  if not canvas or not mapID then
+    for _, b in pairs(customBlips) do b:Hide() end
+    return
+  end
+
+  local prefix   = IsInRaid() and "raid" or "party"
+  local maxUnits = IsInRaid() and 40 or 4
+
+  -- Build the set of units that should be shown right now.
+  local active = {}
+  if showPlayer then active.player = true end
+  for i = 1, maxUnits do
+    local u = prefix..i
+    -- In a raid the player is also raidN; skip it so showPlayer is respected.
+    if UnitExists(u) and not UnitIsUnit(u, "player") then active[u] = true end
+  end
+
+  -- Hide blips for units that are no longer in the group (kept for reuse:
+  -- frames can't be destroyed, so dropping them would leak).
+  for unit, blip in pairs(customBlips) do
+    if not active[unit] then blip:Hide() end
+  end
+
+  local cw, ch = canvas:GetWidth(), canvas:GetHeight()
+  for unit in pairs(active) do
+    local pos = C_Map.GetPlayerMapPosition(mapID, unit)
+    local x, y
+    if pos then x, y = pos:GetXY() end
+
+    if x and y and x > 0 and y > 0 then
+      local blip = customBlips[unit]
+      if not blip then
+        blip = CreateBlip(unit)
+        customBlips[unit] = blip
+      end
+      blip:SetSize(iconSize, iconSize)
+      blip.border:SetSize(iconSize * glowScale, iconSize * glowScale)
+      blip.border:SetAlpha(iconAlpha)
+      blip.border:SetVertexColor(ClassColor(unit))
+      blip:ClearAllPoints()
+      blip:SetPoint("CENTER", canvas, "TOPLEFT", x * cw, -y * ch)
+      blip:Show()
+    elseif customBlips[unit] then
+      customBlips[unit]:Hide()
     end
-
-    for _, blip in pairs(customBlips) do
-        blip:Hide()
-    end
-
-    local uiMapID = WorldMapFrame:GetMapID()
-    if not uiMapID then
-        return
-    end
-
-    local numGroupMembers = GetNumGroupMembers()
-    if numGroupMembers > 0 then
-        local unitPrefix = IsInRaid() and "raid" or "party"
-        local numUnits = IsInRaid() and 40 or 4
-
-        local units = {"player"}
-        for i = 1, numUnits do
-            local unit = unitPrefix .. i
-            if UnitExists(unit) then
-                table.insert(units, unit)
-            end
-        end
-
-        for _, unit in ipairs(units) do
-            local position = C_Map.GetPlayerMapPosition(uiMapID, unit)
-            if position then
-                local x, y = position:GetXY()
-                if x and y and x > 0 and y > 0 then
-                    local blip = customBlips[unit]
-                    if not blip then
-                        blip = CreateFrame("Frame", nil, WorldMapFrame:GetCanvas())
-                        blip:SetSize(iconSize, iconSize)
-
-                        -- Add glowing border effect
-                        blip.border = blip:CreateTexture(nil, "OVERLAY")
-                        blip.border:SetTexture("Interface\\GLUES\\Models\\UI_Draenei\\GenericGlow64")
-                        blip.border:SetBlendMode("ADD")
-                        blip.border:SetAlpha(0.8)
-
-                        -- Get the class of the unit
-                        local _, class = UnitClass(unit)
-                        local color = classColors[class] or {1, 1, 0} -- Default to yellow if class not found
-                        blip.border:SetVertexColor(unpack(color))
-
-                        local glowSize = iconSize * 2
-                        blip.border:SetSize(glowSize, glowSize)
-                        blip.border:SetPoint("CENTER", blip, "CENTER", 0, 0)
-
-                        local pulse = blip.border:CreateAnimationGroup()
-                        local pulseIn = pulse:CreateAnimation("Scale")
-                        pulseIn:SetScale(1.2, 1.2)
-                        pulseIn:SetDuration(0.5)
-                        pulseIn:SetSmoothing("IN")
-                        local pulseOut = pulse:CreateAnimation("Scale")
-                        pulseOut:SetScale(0.8333, 0.8333)
-                        pulseOut:SetDuration(0.5)
-                        pulseOut:SetSmoothing("OUT")
-                        pulseOut:SetStartDelay(0.5)
-                        pulse:SetLooping("REPEAT")
-                        pulse:Play()
-
-                        customBlips[unit] = blip
-                    else
-                        -- Update existing blip's color and size
-                        local _, class = UnitClass(unit)
-                        local color = classColors[class] or {1, 1, 0}
-                        blip.border:SetVertexColor(unpack(color))
-
-                        blip:SetSize(iconSize, iconSize)
-                        local glowSize = iconSize * 2
-                        blip.border:SetSize(glowSize, glowSize)
-                        blip:Show()
-                    end
-
-                    blip:SetPoint("CENTER", WorldMapFrame:GetCanvas(), "TOPLEFT", x * WorldMapFrame:GetCanvas():GetWidth(), -y * WorldMapFrame:GetCanvas():GetHeight())
-                    blip:SetFrameStrata("HIGH")
-                    blip:SetFrameLevel(2000)
-                end
-            end
-        end
-    end
+  end
 end
 
--- Frame for regularly updating blips
-local updateFrame = CreateFrame("Frame")
-local updateInterval = 0.1
-local timeSinceLastUpdate = 0
-
-updateFrame:SetScript("OnUpdate", function(self, elapsed)
-    timeSinceLastUpdate = timeSinceLastUpdate + elapsed
-    if timeSinceLastUpdate >= updateInterval then
-        if WorldMapFrame:IsShown() then
-            UpdatePartyIcons()
-        end
-        timeSinceLastUpdate = 0
-    end
+-- Throttled updater while the map is open.
+local updater = CreateFrame("Frame")
+updater:SetScript("OnUpdate", function(self, dt)
+  self.elapsed = (self.elapsed or 0) + dt
+  if self.elapsed >= 0.1 then
+    self.elapsed = 0
+    UpdatePartyIcons()
+  end
 end)
 
--- Function to reposition the button based on map size (fullscreen or windowed)
-function RepositionMapButton()
-    if WorldMapFrame:IsMaximized() then
-        -- When the map is in fullscreen mode
-        mapButton:SetPoint("TOPRIGHT", WorldMapFrame.BorderFrame.MaximizeMinimizeFrame, "TOPLEFT", -185, -75)
-    else
-        -- When the map is in windowed mode
-        mapButton:SetPoint("TOPRIGHT", WorldMapFrame.BorderFrame.MaximizeMinimizeFrame, "TOPLEFT", -485, -75)
-    end
+-----------------------------------------------------------------------------
+-- Options panel
+-----------------------------------------------------------------------------
+local function MakeSlider(parent, label, minVal, maxVal, step, getFunc, setFunc)
+  local s = CreateFrame("Slider", nil, parent, "UISliderTemplate")
+  s:SetMinMaxValues(minVal, maxVal)
+  s:SetValueStep(step)
+  s:SetObeyStepOnDrag(true)
+
+  s.Text = s:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+  s.Text:SetPoint("BOTTOM", s, "TOP", 0, 2)
+  s.Text:SetText(label)
+
+  s.Val = s:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+  s.Val:SetPoint("TOP", s, "BOTTOM", 0, -2)
+
+  s:SetScript("OnValueChanged", function(_, v)
+    if step == 1 then v = math.floor(v + 0.5) end
+    s.Val:SetText(step == 1 and v or string.format("%.2f", v))
+    setFunc(v)
+    UpdatePartyIcons()
+  end)
+
+  C_Timer.After(0, function()
+    local v = getFunc()
+    s:SetValue(v)
+    s.Val:SetText(step == 1 and v or string.format("%.2f", v))
+  end)
+
+  return s
 end
 
--- Function to create the button on the world map
+local function ShowOptions()
+  if CustomPartyGlowOpts then CustomPartyGlowOpts:SetShown(not CustomPartyGlowOpts:IsShown()); return end
+
+  local f = CreateFrame("Frame", "CustomPartyGlowOpts", UIParent, "BackdropTemplate")
+  f:SetSize(320, 320)
+  f:SetPoint("CENTER")
+  f:SetFrameStrata("DIALOG")
+  f:SetMovable(true); f:EnableMouse(true)
+  f:RegisterForDrag("LeftButton")
+  f:SetScript("OnDragStart", f.StartMoving)
+  f:SetScript("OnDragStop",  f.StopMovingOrSizing)
+  f:SetBackdrop({
+    bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true, tileSize = 16, edgeSize = 16,
+    insets = { left = 4, right = 4, top = 4, bottom = 4 }
+  })
+  f:SetBackdropColor(0.1, 0.1, 0.1, 1)
+
+  local title = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+  title:SetPoint("TOP", 0, -10)
+  title:SetText("Custom Party Glow")
+
+  local sizeSlider = MakeSlider(f, L["Size"], 16, 128, 1,
+    function() return iconSize end,
+    function(v) iconSize = v; CustomPartyGlowDB.iconSize = v end)
+  sizeSlider:SetPoint("TOP", title, "BOTTOM", 0, -20)
+
+  local scaleSlider = MakeSlider(f, L["Glow Scale"], 1, 5, 0.1,
+    function() return glowScale end,
+    function(v) glowScale = v; CustomPartyGlowDB.glowScale = v end)
+  scaleSlider:SetPoint("TOP", sizeSlider, "BOTTOM", 0, -30)
+
+  local alphaSlider = MakeSlider(f, L["Opacity"], 0.1, 1.0, 0.05,
+    function() return iconAlpha end,
+    function(v) iconAlpha = v; CustomPartyGlowDB.iconAlpha = v end)
+  alphaSlider:SetPoint("TOP", scaleSlider, "BOTTOM", 0, -30)
+
+  local playerCheck = CreateFrame("CheckButton", "CustomPartyGlowPlayerCheck", f, "UICheckButtonTemplate")
+  playerCheck:SetPoint("TOP", alphaSlider, "BOTTOM", -60, -20)
+  playerCheck.Text:SetText(L["Show player"])
+  playerCheck:SetChecked(showPlayer)
+  playerCheck:SetScript("OnClick", function(self)
+    showPlayer = self:GetChecked() and true or false
+    CustomPartyGlowDB.showPlayer = showPlayer
+    UpdatePartyIcons()
+  end)
+
+  local minimapCheck = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
+  minimapCheck:SetPoint("TOPLEFT", playerCheck, "BOTTOMLEFT", 0, -2)
+  minimapCheck.Text:SetText(L["Show minimap button"])
+  minimapCheck:SetChecked(CustomPartyGlowDB.showMinimap)
+  minimapCheck:SetScript("OnClick", function(self)
+    CustomPartyGlowDB.showMinimap = self:GetChecked() and true or false
+    CustomPartyGlowMinimapButton:SetShown(CustomPartyGlowDB.showMinimap)
+  end)
+
+  local close = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  close:SetSize(80, 22)
+  close:SetText(CLOSE) -- Blizzard global string, already localized
+  close:SetPoint("BOTTOM", 0, 10)
+  close:SetScript("OnClick", function() f:Hide() end)
+end
+
+-----------------------------------------------------------------------------
+-- Slash command + map button
+-----------------------------------------------------------------------------
+SLASH_CUSTOMPARTYGLOW1 = "/cpg"
+SLASH_CUSTOMPARTYGLOW2 = "/custompartyglow"
+SlashCmdList["CUSTOMPARTYGLOW"] = ShowOptions
+
+-- Addon compartment (the minimap dropdown that lists all addons), see .toc
+CustomPartyGlow_OnAddonCompartmentClick = ShowOptions
+
+-- World map button, stacked with Blizzard's/other addons' map buttons by
+-- Krowi_WorldMapButtons (top-right corner of the map).
 function CreateMapButton()
-    if mapButton then
-        return
-    end
+  local b = LibStub("Krowi_WorldMapButtons-1.4"):Add(nil, "BUTTON")
+  b:SetSize(32, 32)
+  b:SetFrameStrata("HIGH")
+  b:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight", "ADD")
 
-    -- Create button next to the World Map's filter button
-    mapButton = CreateFrame("Button", "ClassGlowMapIconsMapButton", WorldMapFrame.BorderFrame, "UIPanelButtonTemplate")
-    mapButton:SetSize(24, 24)
-    RepositionMapButton()
+  local bg = b:CreateTexture(nil, "BACKGROUND")
+  bg:SetSize(25, 25)
+  bg:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
+  bg:SetPoint("TOPLEFT", 2, -4)
 
-    -- Set the icon texture for the button
-    mapButton.icon = mapButton:CreateTexture(nil, "ARTWORK")
-    mapButton.icon:SetTexture("Interface\\GroupFrame\\UI-Group-LeaderIcon")
-    mapButton.icon:SetAllPoints()
+  local icon = b:CreateTexture(nil, "ARTWORK")
+  icon:SetSize(20, 20)
+  icon:SetTexture("Interface\\AddOns\\CustomPartyGlow\\icon")
+  icon:SetPoint("TOPLEFT", 6, -6)
 
-    -- Set tooltip when hovering over the button
-    mapButton:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Adjust Icon Size", 1, 1, 1)
-        GameTooltip:Show()
-    end)
+  local border = b:CreateTexture(nil, "OVERLAY")
+  border:SetSize(54, 54)
+  border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+  border:SetPoint("TOPLEFT")
 
-    -- Hide tooltip when the cursor leaves the button
-    mapButton:SetScript("OnLeave", function(self)
-        GameTooltip:Hide()
-    end)
+  b.Refresh = function() end -- called by the library on every map change
 
-    -- Hook the maximize/minimize events to reposition the button when the map changes size
-    hooksecurefunc(WorldMapFrame, "Maximize", RepositionMapButton)
-    hooksecurefunc(WorldMapFrame, "Minimize", RepositionMapButton)
-
-    -- OnClick behavior
-    mapButton:SetScript("OnClick", function()
-        if sizeSliderFrame and sizeSliderFrame:IsShown() then
-            sizeSliderFrame:Hide()
-        else
-            ShowSizeSlider()
-        end
-    end)
+  b:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+    GameTooltip:AddLine("Custom Party Glow", 1, 1, 1)
+    GameTooltip:AddLine(L["Click to open the options."], 0.8, 0.8, 0.8)
+    GameTooltip:Show()
+  end)
+  b:SetScript("OnLeave", GameTooltip_Hide)
+  b:SetScript("OnClick", ShowOptions)
 end
 
--- Function to display the size adjustment slider
-function ShowSizeSlider()
-    if not sizeSliderFrame then
-        sizeSliderFrame = CreateFrame("Frame", "ClassGlowMapIconsSliderFrame", WorldMapFrame, "BasicFrameTemplateWithInset")
-        sizeSliderFrame:SetSize(220, 100)
-        if sliderPos.point then
-            sizeSliderFrame:SetPoint(sliderPos.point, sliderPos.relativeTo, sliderPos.relativePoint, sliderPos.xOfs, sliderPos.yOfs)
-        else
-            sizeSliderFrame:SetPoint("CENTER", WorldMapFrame, "CENTER")
-        end
-
-        sizeSliderFrame:SetFrameStrata("DIALOG")
-        sizeSliderFrame:SetFrameLevel(2000)
-
-        sizeSliderFrame:SetMovable(true)
-        sizeSliderFrame:EnableMouse(true)
-        sizeSliderFrame:RegisterForDrag("LeftButton")
-        sizeSliderFrame:SetScript("OnDragStart", function(self)
-            self:StartMoving()
-        end)
-        sizeSliderFrame:SetScript("OnDragStop", function(self)
-            self:StopMovingOrSizing()
-            local point, relativeTo, relativePoint, xOfs, yOfs = self:GetPoint()
-            ClassGlowMapIconsDB.sliderPos = {
-                point = point,
-                relativeTo = relativeTo and relativeTo:GetName() or "WorldMapFrame",
-                relativePoint = relativePoint,
-                xOfs = xOfs,
-                yOfs = yOfs,
-            }
-        end)
-
-        sizeSliderFrame.title = sizeSliderFrame:CreateFontString(nil, "OVERLAY")
-        sizeSliderFrame.title:SetFontObject("GameFontHighlight")
-        sizeSliderFrame.title:SetPoint("TOPLEFT", sizeSliderFrame.TitleBg, "TOPLEFT", 5, -5)
-        sizeSliderFrame.title:SetText("Adjust Icon Size")
-
-        local slider = CreateFrame("Slider", "ClassGlowMapIconsSlider", sizeSliderFrame, "OptionsSliderTemplate")
-        slider:SetWidth(180)
-        slider:SetHeight(20)
-        slider:SetPoint("CENTER", sizeSliderFrame, "CENTER", 0, -10)
-        slider:SetMinMaxValues(16, 128)
-        slider:SetValueStep(1)
-        slider:SetObeyStepOnDrag(true)
-        slider:SetValue(math.floor(iconSize))
-
-        _G[slider:GetName() .. "Low"]:SetText("16")
-        _G[slider:GetName() .. "High"]:SetText("128")
-        _G[slider:GetName() .. "Text"]:SetText("Size: " .. math.floor(iconSize))
-
-        slider:SetScript("OnValueChanged", function(self, value)
-            value = math.floor(value)
-            iconSize = value
-            ClassGlowMapIconsDB.iconSize = value
-            _G[self:GetName() .. "Text"]:SetText("Size: " .. value)
-            if value > 16 then
-                UpdatePartyIcons()
-            else
-                for _, blip in pairs(customBlips) do
-                    blip:Hide()
-                end
-            end
-        end)
-
-        slider:HookScript("OnMouseUp", function(self)
-            local value = math.floor(slider:GetValue())
-            if value <= 16 then
-                value = 16
-                slider:SetValue(16)
-                _G[slider:GetName() .. "Text"]:SetText("Size: 16")
-                ClassGlowMapIconsDB.iconSize = 16
-                for _, blip in pairs(customBlips) do
-                    blip:Hide()
-                end
-            end
-        end)
-
-        local closeButton = CreateFrame("Button", nil, sizeSliderFrame, "UIPanelCloseButton")
-        closeButton:SetPoint("TOPRIGHT", sizeSliderFrame, "TOPRIGHT", -5, -5)
-        closeButton:SetScript("OnClick", function()
-            sizeSliderFrame:Hide()
-        end)
-    else
-        sizeSliderFrame:Show()
-        local slider = _G["ClassGlowMapIconsSlider"]
-        if slider then
-            slider:SetValue(math.floor(iconSize))
-            _G[slider:GetName() .. "Text"]:SetText("Size: " .. math.floor(iconSize))
-        end
-    end
+-----------------------------------------------------------------------------
+-- Minimap button (drag to move around the minimap edge)
+-----------------------------------------------------------------------------
+local function PlaceMinimapButton(b)
+  local a = math.rad(CustomPartyGlowDB.minimapAngle or 225)
+  local r = Minimap:GetWidth() / 2 + 5
+  b:ClearAllPoints()
+  b:SetPoint("CENTER", Minimap, "CENTER", math.cos(a) * r, math.sin(a) * r)
 end
 
--- Automatically hide the slider when the map closes
-WorldMapFrame:HookScript("OnHide", function()
-    if sizeSliderFrame then
-        sizeSliderFrame:Hide()
-    end
-end)
+function CreateMinimapButton()
+  local b = CreateFrame("Button", "CustomPartyGlowMinimapButton", Minimap)
+  b:SetSize(31, 31)
+  b:SetFrameStrata("MEDIUM")
+  b:SetFrameLevel(8)
+  b:RegisterForDrag("LeftButton")
+  b:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
 
--- Frame to handle events
-local frame = CreateFrame("Frame")
-frame:RegisterEvent("ADDON_LOADED")
-frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+  local bg = b:CreateTexture(nil, "BACKGROUND")
+  bg:SetSize(24, 24)
+  bg:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
+  bg:SetPoint("CENTER")
 
-frame:SetScript("OnEvent", function(self, event, arg1)
-    if event == "ADDON_LOADED" and arg1 == "ClassGlowMapIcons" then
-        iconSize = ClassGlowMapIconsDB.iconSize or 24
-        sliderPos = ClassGlowMapIconsDB.sliderPos or {}
-    elseif event == "PLAYER_ENTERING_WORLD" then
-        CreateMapButton()
-    end
-end)
+  local icon = b:CreateTexture(nil, "ARTWORK")
+  icon:SetSize(18, 18)
+  icon:SetTexture("Interface\\AddOns\\CustomPartyGlow\\icon")
+  icon:SetPoint("CENTER")
 
--- Chat command to open the slider
-SLASH_CLASSGLOWMAPICONS1 = "/cgm"
-SLASH_CLASSGLOWMAPICONS2 = "/classglowmapicons"
-SlashCmdList["CLASSGLOWMAPICONS"] = function(msg)
-    ShowSizeSlider()
+  local border = b:CreateTexture(nil, "OVERLAY")
+  border:SetSize(50, 50)
+  border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+  border:SetPoint("TOPLEFT")
+
+  b:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+    GameTooltip:AddLine("Custom Party Glow", 1, 1, 1)
+    GameTooltip:AddLine(L["Click to open the options."], 0.8, 0.8, 0.8)
+    GameTooltip:AddLine(L["Drag to move it."], 0.8, 0.8, 0.8)
+    GameTooltip:Show()
+  end)
+  b:SetScript("OnLeave", GameTooltip_Hide)
+  b:SetScript("OnClick", ShowOptions)
+
+  b:SetScript("OnDragStart", function(self)
+    self:SetScript("OnUpdate", function()
+      local mx, my = Minimap:GetCenter()
+      local cx, cy = GetCursorPosition()
+      local s = Minimap:GetEffectiveScale()
+      CustomPartyGlowDB.minimapAngle = math.deg(math.atan2(cy / s - my, cx / s - mx))
+      PlaceMinimapButton(self)
+    end)
+  end)
+  b:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil) end)
+
+  PlaceMinimapButton(b)
+  b:SetShown(CustomPartyGlowDB.showMinimap)
 end
+
+print("|cff88ccff[CustomPartyGlow]|r " .. L["loaded - /cpg opens the options."])
