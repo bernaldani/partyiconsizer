@@ -4,7 +4,9 @@ enable-nolib-creation: no
 
 externals:
   Libs/LibStub: https://repos.wowace.com/wow/libstub/trunk
-  Libs/Krowi_WorldMapButtons: https://github.com/TheKrowi/Krowi_WorldMapButtons
+  Libs/Krowi_WorldMapButtons:
+    url: https://github.com/TheKrowi/Krowi_WorldMapButtons
+    tag: 1.4.11
 
 ignore:
   - .git
