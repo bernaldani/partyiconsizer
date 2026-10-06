@@ -168,6 +168,7 @@ end)
 -----------------------------------------------------------------------------
 local function MakeSlider(parent, label, minVal, maxVal, step, getFunc, setFunc)
   local s = CreateFrame("Slider", nil, parent, "UISliderTemplate")
+  s:SetSize(200, 17) -- the template has no size; without it nothing anchored below renders
   s:SetMinMaxValues(minVal, maxVal)
   s:SetValueStep(step)
   s:SetObeyStepOnDrag(true)
