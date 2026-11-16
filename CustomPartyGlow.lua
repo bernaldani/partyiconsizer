@@ -4,6 +4,7 @@
 --========================================================--
 
 local addonName = ...
+local version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "?"
 
 -- Localization: English is the fallback, add a block per client locale.
 local L = setmetatable({}, { __index = function(_, k) return k end })
@@ -12,6 +13,7 @@ if locale == "esES" or locale == "esMX" then
   L["Size"]                      = "Tamaño"
   L["Glow Scale"]                = "Escala del brillo"
   L["Opacity"]                   = "Opacidad"
+  L["Show dot"]                  = "Mostrar punto"
   L["Show player"]               = "Mostrar jugador"
   L["Show minimap button"]       = "Mostrar botón en el minimapa"
   L["Test mode"]                 = "Modo de prueba"
@@ -22,6 +24,7 @@ elseif locale == "ptBR" then
   L["Size"]                      = "Tamanho"
   L["Glow Scale"]                = "Escala do brilho"
   L["Opacity"]                   = "Opacidade"
+  L["Show dot"]                  = "Mostrar ponto"
   L["Show player"]               = "Mostrar jogador"
   L["Show minimap button"]       = "Mostrar botão no minimapa"
   L["Test mode"]                 = "Modo de teste"
@@ -32,7 +35,7 @@ end
 
 CustomPartyGlowDB = CustomPartyGlowDB or {}
 
-local iconSize, glowScale, iconAlpha, showPlayer
+local iconSize, glowScale, iconAlpha, showPlayer, showDot
 local testMode = false -- session only, not saved
 local CreateMinimapButton, CreateMapButton -- defined below, run on ADDON_LOADED
 
@@ -52,6 +55,7 @@ local function LoadSettings()
   db.iconSize   = db.iconSize   or 24
   db.glowScale  = db.glowScale  or 2
   db.iconAlpha  = db.iconAlpha  or 0.8
+  db.showDot   = db.showDot ~= false
   db.showPlayer = db.showPlayer ~= false
   db.showMinimap = db.showMinimap ~= false
 
@@ -59,6 +63,7 @@ local function LoadSettings()
   glowScale  = db.glowScale
   iconAlpha  = db.iconAlpha
   showPlayer = db.showPlayer
+  showDot    = db.showDot
 end
 
 local ev = CreateFrame("Frame")
@@ -91,7 +96,7 @@ local function CreateBlip(unit)
   end)
   blip:SetScript("OnLeave", GameTooltip_Hide)
 
-  blip.border = blip:CreateTexture(nil, "OVERLAY")
+  blip.border = blip:CreateTexture(nil, "ARTWORK")
   blip.border:SetTexture("Interface\\GLUES\\Models\\UI_Draenei\\GenericGlow64")
   blip.border:SetBlendMode("ADD")
   blip.border:SetPoint("CENTER")
@@ -104,6 +109,16 @@ local function CreateBlip(unit)
   pOut:SetScale(0.8333, 0.8333); pOut:SetDuration(0.5); pOut:SetSmoothing("OUT")
   pOut:SetStartDelay(0.5)
   pulse:Play()
+
+  -- Solid class-colored dot above the glow, so the member stays visible
+  -- under quest/objective pins. Dark ring behind it as an outline.
+  blip.ring = blip:CreateTexture(nil, "OVERLAY", nil, 0)
+  blip.ring:SetTexture("Interface\\AddOns\\CustomPartyGlow\\dot")
+  blip.ring:SetVertexColor(0, 0, 0)
+  blip.ring:SetPoint("CENTER")
+  blip.dot = blip:CreateTexture(nil, "OVERLAY", nil, 1)
+  blip.dot:SetTexture("Interface\\AddOns\\CustomPartyGlow\\dot")
+  blip.dot:SetPoint("CENTER")
 
   return blip
 end
@@ -160,6 +175,15 @@ local function UpdatePartyIcons()
       blip.border:SetSize(iconSize * glowScale, iconSize * glowScale)
       blip.border:SetAlpha(iconAlpha)
       blip.border:SetVertexColor(ClassColor(unit))
+      -- No dot on the player: it would cover the direction arrow.
+      local dot = showDot and unit ~= "player"
+      blip.dot:SetShown(dot); blip.ring:SetShown(dot)
+      if dot then -- half the glow's base size, so the glow stays visible around it
+        local d = iconSize / 2
+        blip.dot:SetSize(d, d)
+        blip.dot:SetVertexColor(ClassColor(unit))
+        blip.ring:SetSize(d + 4, d + 4)
+      end
       blip:ClearAllPoints()
       blip:SetPoint("CENTER", canvas, "TOPLEFT", x * cw, -y * ch)
       blip:Show()
@@ -216,7 +240,7 @@ local function ShowOptions()
   if CustomPartyGlowOpts then CustomPartyGlowOpts:SetShown(not CustomPartyGlowOpts:IsShown()); return end
 
   local f = CreateFrame("Frame", "CustomPartyGlowOpts", UIParent, "BackdropTemplate")
-  f:SetSize(320, 350)
+  f:SetSize(320, 380)
   f:SetPoint("CENTER")
   f:SetFrameStrata("DIALOG")
   f:SetMovable(true); f:EnableMouse(true)
@@ -233,7 +257,7 @@ local function ShowOptions()
 
   local title = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   title:SetPoint("TOP", 0, -10)
-  title:SetText("Custom Party Glow")
+  title:SetText("Custom Party Glow v" .. version)
 
   local sizeSlider = MakeSlider(f, L["Size"], 16, 128, 1,
     function() return iconSize end,
@@ -260,8 +284,18 @@ local function ShowOptions()
     UpdatePartyIcons()
   end)
 
+  local dotCheck = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
+  dotCheck:SetPoint("TOPLEFT", playerCheck, "BOTTOMLEFT", 0, -2)
+  dotCheck.Text:SetText(L["Show dot"])
+  dotCheck:SetChecked(showDot)
+  dotCheck:SetScript("OnClick", function(self)
+    showDot = self:GetChecked() and true or false
+    CustomPartyGlowDB.showDot = showDot
+    UpdatePartyIcons()
+  end)
+
   local minimapCheck = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
-  minimapCheck:SetPoint("TOPLEFT", playerCheck, "BOTTOMLEFT", 0, -2)
+  minimapCheck:SetPoint("TOPLEFT", dotCheck, "BOTTOMLEFT", 0, -2)
   minimapCheck.Text:SetText(L["Show minimap button"])
   minimapCheck:SetChecked(CustomPartyGlowDB.showMinimap)
   minimapCheck:SetScript("OnClick", function(self)
@@ -322,7 +356,7 @@ function CreateMapButton()
 
   b:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-    GameTooltip:AddLine("Custom Party Glow", 1, 1, 1)
+    GameTooltip:AddLine("Custom Party Glow v" .. version, 1, 1, 1)
     GameTooltip:AddLine(L["Click to open the options."], 0.8, 0.8, 0.8)
     GameTooltip:Show()
   end)
@@ -365,7 +399,7 @@ function CreateMinimapButton()
 
   b:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-    GameTooltip:AddLine("Custom Party Glow", 1, 1, 1)
+    GameTooltip:AddLine("Custom Party Glow v" .. version, 1, 1, 1)
     GameTooltip:AddLine(L["Click to open the options."], 0.8, 0.8, 0.8)
     GameTooltip:AddLine(L["Drag to move it."], 0.8, 0.8, 0.8)
     GameTooltip:Show()
@@ -388,4 +422,4 @@ function CreateMinimapButton()
   b:SetShown(CustomPartyGlowDB.showMinimap)
 end
 
-print("|cff88ccff[CustomPartyGlow]|r " .. L["loaded - /cpg opens the options."])
+print("|cff88ccff[CustomPartyGlow v" .. version .. "]|r " .. L["loaded - /cpg opens the options."])

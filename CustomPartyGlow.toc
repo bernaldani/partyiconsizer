@@ -6,7 +6,7 @@
 ## Notes-ptBR: Adiciona efeitos de brilho aos membros do grupo no mapa-múndi, com cores de acordo com a classe.
 ## Author: Daniel Bernal
 ## Category: Map Enhancements
-## Version: 1.2.1
+## Version: 1.2.2
 ## X-Curse-Project-ID: 1104119
 ## SavedVariables: CustomPartyGlowDB
 ## IconTexture: Interface\AddOns\CustomPartyGlow\icon

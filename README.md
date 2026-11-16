@@ -5,6 +5,7 @@
 ## Features
 
 - Class-colored glow for every party or raid member on the world map (uses the game's class colors).
+- Solid class-colored dot with a dark outline on each member, drawn above quest and objective pins (Questie, etc.) so members stay visible. It replaces the game's tiny party dot; can be turned off.
 - Optional glow on yourself.
 - Adjustable glow size, spread and opacity.
 - All settings are saved per account and kept between sessions.
@@ -13,7 +14,7 @@
 
 Any of these opens (or closes) the options panel:
 
-- **World map button**: top-right corner of the map, stacked with Blizzard's filter buttons.
+- **World map button**: top-right corner of the map (top-left on WoW Forever), stacked with Blizzard's filter buttons.
 - **Minimap button**: drag it around the minimap edge to move it. It can be hidden from the options.
 - **Addon compartment**: the minimap dropdown that lists all your addons.
 - **Slash commands**: `/cpg` or `/custompartyglow`.
@@ -22,11 +23,13 @@ Any of these opens (or closes) the options panel:
 
 | Option | Description |
 |---|---|
-| Size | Glow icon size (16–128). |
+| Size | Base size of the glow and the dot (16–128). The dot is half this size. |
 | Glow Scale | How far the glow spreads around the icon (1–5). |
 | Opacity | Glow opacity (0.1–1). |
 | Show player | Show the glow on yourself. |
+| Show dot | Draw the class-colored dot on each group member (never on yourself, so your arrow stays visible). |
 | Show minimap button | Show the minimap button. |
+| Test mode | Shows four fake group members around you, to preview the glow without a group. Not saved. |
 
 ## Languages
 
