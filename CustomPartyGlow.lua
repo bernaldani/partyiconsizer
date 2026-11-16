@@ -14,6 +14,7 @@ if locale == "esES" or locale == "esMX" then
   L["Opacity"]                   = "Opacidad"
   L["Show player"]               = "Mostrar jugador"
   L["Show minimap button"]       = "Mostrar botón en el minimapa"
+  L["Test mode"]                 = "Modo de prueba"
   L["Click to open the options."] = "Click para abrir las opciones."
   L["Drag to move it."]          = "Arrastra para moverlo."
   L["loaded - /cpg opens the options."] = "cargado - /cpg abre las opciones."
@@ -23,6 +24,7 @@ elseif locale == "ptBR" then
   L["Opacity"]                   = "Opacidade"
   L["Show player"]               = "Mostrar jogador"
   L["Show minimap button"]       = "Mostrar botão no minimapa"
+  L["Test mode"]                 = "Modo de teste"
   L["Click to open the options."] = "Clique para abrir as opções."
   L["Drag to move it."]          = "Arraste para movê-lo."
   L["loaded - /cpg opens the options."] = "carregado - /cpg abre as opções."
@@ -31,10 +33,15 @@ end
 CustomPartyGlowDB = CustomPartyGlowDB or {}
 
 local iconSize, glowScale, iconAlpha, showPlayer
+local testMode = false -- session only, not saved
 local CreateMinimapButton, CreateMapButton -- defined below, run on ADDON_LOADED
 
+-- Fake group members drawn around the player in test mode.
+local fakeUnits = { test1 = "WARRIOR", test2 = "MAGE", test3 = "PRIEST", test4 = "HUNTER" }
+local fakeIndex = { test1 = 1, test2 = 2, test3 = 3, test4 = 4 }
+
 local function ClassColor(unit)
-  local _, cls = UnitClass(unit)
+  local cls = fakeUnits[unit] or select(2, UnitClass(unit))
   local c = cls and RAID_CLASS_COLORS[cls]
   if c then return c.r, c.g, c.b end
   return 1, 1, 0
@@ -77,8 +84,9 @@ local function CreateBlip(unit)
 
   blip:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:AddLine(UnitName(unit) or "?", ClassColor(unit))
-    GameTooltip:AddLine(UnitClass(unit) or "", 1, 1, 1)
+    local fake = fakeUnits[unit]
+    GameTooltip:AddLine(fake and L["Test mode"] or UnitName(unit) or "?", ClassColor(unit))
+    GameTooltip:AddLine(fake or UnitClass(unit) or "", 1, 1, 1)
     GameTooltip:Show()
   end)
   blip:SetScript("OnLeave", GameTooltip_Hide)
@@ -121,6 +129,9 @@ local function UpdatePartyIcons()
     -- In a raid the player is also raidN; skip it so showPlayer is respected.
     if UnitExists(u) and not UnitIsUnit(u, "player") then active[u] = true end
   end
+  if testMode then
+    for u in pairs(fakeUnits) do active[u] = true end
+  end
 
   -- Hide blips for units that are no longer in the group (kept for reuse:
   -- frames can't be destroyed, so dropping them would leak).
@@ -130,9 +141,14 @@ local function UpdatePartyIcons()
 
   local cw, ch = canvas:GetWidth(), canvas:GetHeight()
   for unit in pairs(active) do
-    local pos = C_Map.GetPlayerMapPosition(mapID, unit)
+    local i = fakeIndex[unit]
+    local pos = C_Map.GetPlayerMapPosition(mapID, i and "player" or unit)
     local x, y
     if pos then x, y = pos:GetXY() end
+    if i and x then -- spread the fakes in a circle around the player
+      local a = i * math.pi / 2
+      x, y = x + 0.03 * math.cos(a), y + 0.03 * math.sin(a)
+    end
 
     if x and y and x > 0 and y > 0 then
       local blip = customBlips[unit]
@@ -200,7 +216,7 @@ local function ShowOptions()
   if CustomPartyGlowOpts then CustomPartyGlowOpts:SetShown(not CustomPartyGlowOpts:IsShown()); return end
 
   local f = CreateFrame("Frame", "CustomPartyGlowOpts", UIParent, "BackdropTemplate")
-  f:SetSize(320, 320)
+  f:SetSize(320, 350)
   f:SetPoint("CENTER")
   f:SetFrameStrata("DIALOG")
   f:SetMovable(true); f:EnableMouse(true)
@@ -251,6 +267,15 @@ local function ShowOptions()
   minimapCheck:SetScript("OnClick", function(self)
     CustomPartyGlowDB.showMinimap = self:GetChecked() and true or false
     CustomPartyGlowMinimapButton:SetShown(CustomPartyGlowDB.showMinimap)
+  end)
+
+  local testCheck = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
+  testCheck:SetPoint("TOPLEFT", minimapCheck, "BOTTOMLEFT", 0, -2)
+  testCheck.Text:SetText(L["Test mode"])
+  testCheck:SetChecked(testMode)
+  testCheck:SetScript("OnClick", function(self)
+    testMode = self:GetChecked() and true or false
+    UpdatePartyIcons()
   end)
 
   local close = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")

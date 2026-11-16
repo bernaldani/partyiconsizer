@@ -38,7 +38,7 @@ The interface follows your game client's language: English, Spanish (esES / esMX
 
 ## Installation
 
-1. Download the release zip and extract it into `World of Warcraft/_retail_/Interface/AddOns/`.
+1. Download the release zip and extract it into `World of Warcraft/_retail_/Interface/AddOns/` (or `_forever_/Interface/AddOns/` for WoW Forever).
 2. Make sure the folder is named `CustomPartyGlow`.
 3. Launch the game and enable the addon from the AddOns menu.
 
@@ -51,4 +51,4 @@ The release zip bundles the libraries. When running from a git checkout, add the
 
 ## Requirements
 
-- World of Warcraft Retail 12.1 or higher.
+- World of Warcraft Retail 12.1 or higher, or WoW Forever.
